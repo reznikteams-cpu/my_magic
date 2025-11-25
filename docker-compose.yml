@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile.bot
+    container_name: wise-guide-bot
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ROBOKASSA_LOGIN=${ROBOKASSA_LOGIN}
+      - ROBOKASSA_PASSWORD1=${ROBOKASSA_PASSWORD1}
+      - ROBOKASSA_PASSWORD2=${ROBOKASSA_PASSWORD2}
+      - ROBOKASSA_TEST_MODE=${ROBOKASSA_TEST_MODE}
+      - SUBSCRIPTION_PRICE=${SUBSCRIPTION_PRICE}
+      - SUBSCRIPTION_DAYS=${SUBSCRIPTION_DAYS}
+      - DEBUG=${DEBUG}
+    volumes:
+      - ./bot_data.db:/app/bot_data.db
+    restart: always
+    networks:
+      - wise-guide-network
+
+  webhook:
+    build:
+      context: .
+      dockerfile: Dockerfile.webhook
+    container_name: wise-guide-webhook
+    environment:
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ROBOKASSA_LOGIN=${ROBOKASSA_LOGIN}
+      - ROBOKASSA_PASSWORD1=${ROBOKASSA_PASSWORD1}
+      - ROBOKASSA_PASSWORD2=${ROBOKASSA_PASSWORD2}
+      - ROBOKASSA_TEST_MODE=${ROBOKASSA_TEST_MODE}
+      - SUBSCRIPTION_PRICE=${SUBSCRIPTION_PRICE}
+      - SUBSCRIPTION_DAYS=${SUBSCRIPTION_DAYS}
+      - WEBHOOK_PORT=5000
+      - DEBUG=${DEBUG}
+    volumes:
+      - ./bot_data.db:/app/bot_data.db
+    ports:
+      - "5000:5000"
+    restart: always
+    networks:
+      - wise-guide-network
+
+networks:
+  wise-guide-network:
+    driver: bridge
