@@ -14,8 +14,8 @@ class RobokassaHandler:
     """Handler for Robokassa payment integration."""
     
     # Robokassa API endpoints
-    TEST_URL = "https://test.robokassa.ru/Auth.aspx"
-    PROD_URL = "https://auth.robokassa.ru/Auth.aspx"
+    TEST_URL = "https://auth.robokassa.ru/Merchant/Index.aspx"
+    PROD_URL = "https://auth.robokassa.ru/Merchant/Index.aspx"
     
     def __init__(self, login: str, password1: str, password2: str, price: float, test_mode: bool = True):
         """
@@ -35,34 +35,38 @@ class RobokassaHandler:
         self.test_mode = test_mode
         self.base_url = self.TEST_URL if test_mode else self.PROD_URL
     
-    def generate_payment_link(self, user_id: int, description: str, currency: str = "RUB") -> str:
+    def generate_payment_link(self, user_id: int, description: str, subscription_id: Optional[int] = None) -> str:
         """
         Generate a payment link for Robokassa.
         
         Args:
             user_id: Telegram user ID (used as InvId)
             description: Payment description
-            currency: Currency code (default: RUB)
+            subscription_id: Optional subscription ID for tracking
         
         Returns:
             Payment link URL
         """
         try:
             # Generate signature (MD5 hash)
-            # Format: MerchantLogin:Sum:InvId:Password1
+            # Format: MerchantLogin:OutSum:InvId:Password#1
             signature_string = f"{self.login}:{self.price}:{user_id}:{self.password1}"
             signature = hashlib.md5(signature_string.encode()).hexdigest()
             
             # Build payment link parameters
             params = {
                 "MerchantLogin": self.login,
-                "Sum": str(self.price),
+                "OutSum": str(self.price),
                 "InvId": str(user_id),
                 "Description": description,
                 "SignatureValue": signature,
                 "Culture": "ru",
-                "IsTest": "1" if self.test_mode else "0",
+                "Shp_user_id": str(user_id),
             }
+            
+            # Add subscription ID if provided
+            if subscription_id:
+                params["Shp_subscription_id"] = str(subscription_id)
             
             # Generate full URL
             payment_link = f"{self.base_url}?{urlencode(params)}"
@@ -73,22 +77,34 @@ class RobokassaHandler:
             logger.error(f"Error generating payment link: {e}")
             return ""
     
-    def verify_payment(self, sum_: float, inv_id: int, signature: str) -> bool:
+    def verify_payment(self, out_sum: float, inv_id: int, signature: str, custom_params: Optional[dict] = None) -> bool:
         """
         Verify payment signature from Robokassa webhook.
         
+        According to Robokassa docs, signature is calculated as:
+        MD5(OutSum:InvId:Password#2) or with custom params:
+        MD5(OutSum:InvId:Password#2:Shp_param1=value1:Shp_param2=value2...)
+        
         Args:
-            sum_: Payment amount
+            out_sum: Payment amount
             inv_id: Invoice ID (user_id)
             signature: Signature from Robokassa
+            custom_params: Optional custom parameters dict
         
         Returns:
             True if signature is valid, False otherwise
         """
         try:
             # Generate expected signature
-            # Format: Sum:InvId:Password2
-            signature_string = f"{sum_}:{inv_id}:{self.password2}"
+            # Format: OutSum:InvId:Password#2 (or with custom params)
+            signature_string = f"{out_sum}:{inv_id}:{self.password2}"
+            
+            # Add custom parameters if provided (sorted by key)
+            if custom_params:
+                for key in sorted(custom_params.keys()):
+                    if key.startswith("Shp_"):
+                        signature_string += f":{key}={custom_params[key]}"
+            
             expected_signature = hashlib.md5(signature_string.encode()).hexdigest()
             
             # Compare signatures (case-insensitive)
@@ -98,6 +114,7 @@ class RobokassaHandler:
                 logger.info(f"Payment verified for invoice {inv_id}")
             else:
                 logger.warning(f"Payment signature mismatch for invoice {inv_id}")
+                logger.debug(f"Expected: {expected_signature}, Got: {signature}")
             
             return is_valid
         
@@ -105,16 +122,18 @@ class RobokassaHandler:
             logger.error(f"Error verifying payment: {e}")
             return False
     
-    def generate_webhook_signature(self, sum_: float, inv_id: int) -> str:
+    def get_webhook_response(self, inv_id: int) -> str:
         """
-        Generate signature for webhook response.
+        Generate proper webhook response for Robokassa.
+        
+        According to Robokassa docs, the response should be:
+        - "OK" for successful verification
+        - "OK{InvId}" format is also acceptable
         
         Args:
-            sum_: Payment amount
             inv_id: Invoice ID
         
         Returns:
-            Signature hash
+            Response string
         """
-        signature_string = f"{sum_}:{inv_id}:{self.password2}"
-        return hashlib.md5(signature_string.encode()).hexdigest()
+        return f"OK{inv_id}"

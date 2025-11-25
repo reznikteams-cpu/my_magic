@@ -41,36 +41,55 @@ SUBSCRIPTION_DAYS = int(os.getenv("SUBSCRIPTION_DAYS", "30"))
 @app.route('/webhook/robokassa/result', methods=['POST'])
 def robokassa_result():
     """
-    Handle Robokassa payment result notification.
+    Handle Robokassa payment result notification (ResultURL).
     
-    Expected POST parameters:
+    According to Robokassa docs, expected POST parameters:
     - MerchantLogin: Merchant login
-    - Sum: Payment amount
+    - OutSum: Payment amount (note: OutSum, not Sum)
     - InvId: Invoice ID (user_id)
     - SignatureValue: MD5 signature
+    - Email: Customer email (optional)
+    - Shp_*: Custom parameters (optional)
+    
+    Response must be:
+    - "OK" or "OK{InvId}" if signature is valid
+    - Error response if signature is invalid
     """
     try:
         merchant_login = request.form.get('MerchantLogin')
-        sum_ = float(request.form.get('Sum', 0))
+        # Note: Robokassa uses OutSum, not Sum
+        out_sum = float(request.form.get('OutSum', 0))
         inv_id = int(request.form.get('InvId', 0))
         signature = request.form.get('SignatureValue', '')
         
-        logger.info(f"Received Robokassa notification: merchant={merchant_login}, sum={sum_}, inv_id={inv_id}")
+        logger.info(f"Received Robokassa notification: merchant={merchant_login}, sum={out_sum}, inv_id={inv_id}")
         
         # Verify merchant login
         if merchant_login != robokassa.login:
             logger.error(f"Invalid merchant login: {merchant_login}")
             return "Invalid merchant", 400
         
+        # Collect custom parameters (Shp_*)
+        custom_params = {}
+        for key, value in request.form.items():
+            if key.startswith('Shp_'):
+                custom_params[key] = value
+        
         # Verify payment signature
-        if not robokassa.verify_payment(sum_, inv_id, signature):
+        if not robokassa.verify_payment(out_sum, inv_id, signature, custom_params):
             logger.error(f"Invalid signature for invoice {inv_id}")
             return "Invalid signature", 400
+        
+        # Verify amount matches subscription price
+        if out_sum != robokassa.price:
+            logger.warning(f"Amount mismatch for invoice {inv_id}: expected {robokassa.price}, got {out_sum}")
+            # Still process but log warning
         
         # Complete payment and activate subscription
         if db.complete_payment(str(inv_id), SUBSCRIPTION_DAYS):
             logger.info(f"Subscription activated for user {inv_id}")
-            return "OK", 200
+            # Return OK response as per Robokassa docs
+            return robokassa.get_webhook_response(inv_id), 200
         else:
             logger.error(f"Failed to complete payment for user {inv_id}")
             return "Payment processing error", 500
