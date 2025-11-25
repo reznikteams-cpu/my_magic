@@ -305,13 +305,6 @@ def main() -> None:
     # Add message handler
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    # Add callback handler for buttons
-    application.add_handler(application.add_handler(
-        application.add_handler(
-            MessageHandler(filters.COMMAND, lambda u, c: None)
-        )
-    ))
-    
     # Add callback query handler
     from telegram.ext import CallbackQueryHandler
     application.add_handler(CallbackQueryHandler(button_callback))
