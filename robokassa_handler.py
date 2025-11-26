@@ -137,3 +137,50 @@ class RobokassaHandler:
             Response string
         """
         return f"OK{inv_id}"
+    
+    def generate_payment_form_link(self, user_id: int, description: str, subscription_id: Optional[int] = None) -> str:
+        """
+        Generate a payment link using Robokassa Payment Form Script method.
+        This method is more reliable than direct redirect and works better with some merchant accounts.
+        
+        Uses the FormMS.js script from Robokassa which handles payment form rendering.
+        
+        Args:
+            user_id: Telegram user ID (used as InvId)
+            description: Payment description
+            subscription_id: Optional subscription ID for tracking
+        
+        Returns:
+            Payment form link URL
+        """
+        try:
+            # Generate signature (MD5 hash)
+            # Format: MerchantLogin:OutSum:InvId:Password#1
+            signature_string = f"{self.login}:{self.price}:{user_id}:{self.password1}"
+            signature = hashlib.md5(signature_string.encode()).hexdigest()
+            
+            # Build parameters for FormMS.js
+            params = {
+                "MerchantLogin": self.login,
+                "OutSum": str(self.price),
+                "InvId": str(user_id),
+                "Description": description,
+                "SignatureValue": signature,
+                "Culture": "ru",
+                "Shp_user_id": str(user_id),
+            }
+            
+            # Add subscription ID if provided
+            if subscription_id:
+                params["Shp_subscription_id"] = str(subscription_id)
+            
+            # Use FormMS.js script method (more reliable)
+            # This generates a link that loads the payment form via JavaScript
+            form_url = f"https://auth.robokassa.ru/Merchant/PaymentForm/FormMS.js?{urlencode(params)}"
+            
+            logger.info(f"Payment form link generated for user {user_id}")
+            return form_url
+        
+        except Exception as e:
+            logger.error(f"Error generating payment form link: {e}")
+            return ""

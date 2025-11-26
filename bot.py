@@ -269,8 +269,9 @@ async def handle_subscribe(query, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle subscription button press."""
     user_id = query.from_user.id
     
-    # Generate payment link
-    payment_link = robokassa.generate_payment_link(
+    # Generate payment link using Robokassa Payment Form Script
+    # This method is more reliable than direct redirect
+    payment_link = robokassa.generate_payment_form_link(
         user_id=user_id,
         description=f"Подписка на Мудрую Проводницу на {SUBSCRIPTION_DAYS} дней"
     )
