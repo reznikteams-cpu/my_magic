@@ -16,6 +16,7 @@ class RobokassaHandler:
     # Robokassa API endpoints
     TEST_URL = "https://auth.robokassa.ru/Merchant/Index.aspx"
     PROD_URL = "https://auth.robokassa.ru/Merchant/Index.aspx"
+    FORM_IFRAME_URL = "https://auth.robokassa.ru/Merchant/PaymentForm/FormMS.if"
     
     def __init__(self, login: str, password1: str, password2: str, price: float, test_mode: bool = True):
         """
@@ -140,10 +141,10 @@ class RobokassaHandler:
     
     def generate_payment_form_link(self, user_id: int, description: str, subscription_id: Optional[int] = None) -> str:
         """
-        Generate a payment link using Robokassa Payment Form Script method.
-        This method is more reliable than direct redirect and works better with some merchant accounts.
+        Generate a direct payment form link using Robokassa iframe endpoint.
+        This method works directly in Telegram without requiring JavaScript execution.
         
-        Uses the FormMS.js script from Robokassa which handles payment form rendering.
+        Uses the FormMS.if iframe endpoint from Robokassa which returns an iframe tag.
         
         Args:
             user_id: Telegram user ID (used as InvId)
@@ -151,7 +152,7 @@ class RobokassaHandler:
             subscription_id: Optional subscription ID for tracking
         
         Returns:
-            Payment form link URL
+            Direct payment form URL
         """
         try:
             # Generate signature (MD5 hash)
@@ -159,7 +160,7 @@ class RobokassaHandler:
             signature_string = f"{self.login}:{self.price}:{user_id}:{self.password1}"
             signature = hashlib.md5(signature_string.encode()).hexdigest()
             
-            # Build parameters for FormMS.js
+            # Build parameters for direct iframe
             params = {
                 "MerchantLogin": self.login,
                 "OutSum": str(self.price),
@@ -174,9 +175,9 @@ class RobokassaHandler:
             if subscription_id:
                 params["Shp_subscription_id"] = str(subscription_id)
             
-            # Use FormMS.js script method (more reliable)
-            # This generates a link that loads the payment form via JavaScript
-            form_url = f"https://auth.robokassa.ru/Merchant/PaymentForm/FormMS.js?{urlencode(params)}"
+            # Use FormMS.if - direct iframe endpoint
+            # This endpoint returns an iframe that can be opened directly in browser
+            form_url = f"{self.FORM_IFRAME_URL}?{urlencode(params)}"
             
             logger.info(f"Payment form link generated for user {user_id}")
             return form_url
