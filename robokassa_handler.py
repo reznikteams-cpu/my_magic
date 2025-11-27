@@ -14,9 +14,7 @@ class RobokassaHandler:
     """Handler for Robokassa payment integration."""
     
     # Robokassa API endpoints
-    TEST_URL = "https://auth.robokassa.ru/Merchant/Index.aspx"
-    PROD_URL = "https://auth.robokassa.ru/Merchant/Index.aspx"
-    FORM_IFRAME_URL = "https://auth.robokassa.ru/Merchant/PaymentForm/FormMS.if"
+    PAYMENT_URL = "https://auth.robokassa.ru/Merchant/Index.aspx"
     
     def __init__(self, login: str, password1: str, password2: str, price: float, test_mode: bool = True):
         """
@@ -34,44 +32,47 @@ class RobokassaHandler:
         self.password2 = password2
         self.price = price
         self.test_mode = test_mode
-        self.base_url = self.TEST_URL if test_mode else self.PROD_URL
     
     def generate_payment_link(self, user_id: int, description: str, subscription_id: Optional[int] = None) -> str:
         """
-        Generate a payment link for Robokassa.
+        Generate a payment link for Robokassa according to official documentation.
+        
+        IMPORTANT: According to Robokassa docs, the signature is calculated as:
+        MerchantLogin:OutSum::Password#1
+        
+        Note the double colon (::) - InvId is included in signature calculation but with EMPTY value.
+        InvId is NOT included in the URL parameters.
         
         Args:
-            user_id: Telegram user ID (used as InvId)
+            user_id: Telegram user ID (used for tracking, not in URL)
             description: Payment description
-            subscription_id: Optional subscription ID for tracking
+            subscription_id: Optional subscription ID (not used in simple payment)
         
         Returns:
             Payment link URL
         """
         try:
             # Generate signature (MD5 hash)
-            # Format: MerchantLogin:OutSum:InvId:Password#1
-            signature_string = f"{self.login}:{self.price}:{user_id}:{self.password1}"
+            # CORRECT FORMAT: MerchantLogin:OutSum::Password#1
+            # Note: InvId is represented by empty value between colons
+            signature_string = f"{self.login}:{self.price}::{self.password1}"
             signature = hashlib.md5(signature_string.encode()).hexdigest()
             
             # Build payment link parameters
+            # According to docs, only these 4 parameters are used:
+            # MerchantLogin, OutSum, Description, SignatureValue
             params = {
                 "MerchantLogin": self.login,
                 "OutSum": str(self.price),
-                "InvId": str(user_id),
                 "Description": description,
                 "SignatureValue": signature,
-                "Culture": "ru",
-                "Shp_user_id": str(user_id),
             }
             
-            # Add subscription ID if provided
-            if subscription_id:
-                params["Shp_subscription_id"] = str(subscription_id)
-            
             # Generate full URL
-            payment_link = f"{self.base_url}?{urlencode(params)}"
+            payment_link = f"{self.PAYMENT_URL}?{urlencode(params)}"
             logger.info(f"Payment link generated for user {user_id}")
+            logger.debug(f"Signature string: {signature_string}")
+            logger.debug(f"Signature: {signature}")
             return payment_link
         
         except Exception as e:
@@ -82,9 +83,11 @@ class RobokassaHandler:
         """
         Verify payment signature from Robokassa webhook.
         
-        According to Robokassa docs, signature is calculated as:
+        According to Robokassa docs, webhook signature is calculated as:
         MD5(OutSum:InvId:Password#2) or with custom params:
         MD5(OutSum:InvId:Password#2:Shp_param1=value1:Shp_param2=value2...)
+        
+        Note: Here InvId HAS a value (unlike in payment link generation).
         
         Args:
             out_sum: Payment amount
@@ -97,7 +100,7 @@ class RobokassaHandler:
         """
         try:
             # Generate expected signature
-            # Format: OutSum:InvId:Password#2 (or with custom params)
+            # Format: OutSum:InvId:Password#2 (with actual InvId value)
             signature_string = f"{out_sum}:{inv_id}:{self.password2}"
             
             # Add custom parameters if provided (sorted by key)
@@ -144,42 +147,39 @@ class RobokassaHandler:
         Generate a direct payment form link using Robokassa iframe endpoint.
         This method works directly in Telegram without requiring JavaScript execution.
         
-        Uses the FormMS.if iframe endpoint from Robokassa which returns an iframe tag.
+        Uses the FormMS.if iframe endpoint from Robokassa.
+        
+        IMPORTANT: Same rules apply as generate_payment_link - signature uses empty InvId.
         
         Args:
-            user_id: Telegram user ID (used as InvId)
+            user_id: Telegram user ID (for tracking, not in URL)
             description: Payment description
-            subscription_id: Optional subscription ID for tracking
+            subscription_id: Optional subscription ID (not used in simple payment)
         
         Returns:
             Direct payment form URL
         """
         try:
             # Generate signature (MD5 hash)
-            # Format: MerchantLogin:OutSum:InvId:Password#1
-            signature_string = f"{self.login}:{self.price}:{user_id}:{self.password1}"
+            # CORRECT FORMAT: MerchantLogin:OutSum::Password#1
+            signature_string = f"{self.login}:{self.price}::{self.password1}"
             signature = hashlib.md5(signature_string.encode()).hexdigest()
             
             # Build parameters for direct iframe
             params = {
                 "MerchantLogin": self.login,
                 "OutSum": str(self.price),
-                "InvId": str(user_id),
                 "Description": description,
                 "SignatureValue": signature,
-                "Culture": "ru",
-                "Shp_user_id": str(user_id),
             }
-            
-            # Add subscription ID if provided
-            if subscription_id:
-                params["Shp_subscription_id"] = str(subscription_id)
             
             # Use FormMS.if - direct iframe endpoint
             # This endpoint returns an iframe that can be opened directly in browser
-            form_url = f"{self.FORM_IFRAME_URL}?{urlencode(params)}"
+            form_url = f"https://auth.robokassa.ru/Merchant/PaymentForm/FormMS.if?{urlencode(params)}"
             
             logger.info(f"Payment form link generated for user {user_id}")
+            logger.debug(f"Signature string: {signature_string}")
+            logger.debug(f"Signature: {signature}")
             return form_url
         
         except Exception as e:
