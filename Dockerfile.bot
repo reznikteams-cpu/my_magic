@@ -15,7 +15,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY bot.py .
 COPY database.py .
 COPY robokassa_handler.py .
-COPY .env .
 
 # Run the bot
 CMD ["python", "bot.py"]
